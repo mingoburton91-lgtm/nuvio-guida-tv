@@ -110,6 +110,8 @@ jobs:
           echo '7ddf0a645b5363241318ba1e88e8c8b9f0fd9e0fc334157ffd5cbcef393edeb9  /tmp/nuvio-guida-tv.patch' | sha256sum -c -
           git apply --check /tmp/nuvio-guida-tv.patch
           git apply /tmp/nuvio-guida-tv.patch
+          echo "=== FILE GUIDA TV ==="
+          grep -RIlE "Guida TV|TvVoo|Palinsesto non disponibile" app/src 2>/dev/null || true
       - name: Create signing key
         run: |
           keytool -genkeypair -keystore "$RUNNER_TEMP/guida-tv.jks" \
