@@ -1,0 +1,118 @@
+name: Nuvio Guida TV APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865"
+      - name: Apply guide changes
+        shell: bash
+        run: |
+          cat <<'PATCH_BASE64' | base64 -d | gzip -d > /tmp/nuvio-guida-tv.patch
+          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
+          LEHqZGa27hRsNagvVtWT29AH+n9kr4oW6zcAAA==
+          PATCH_BASE64
+          echo '7ddf0a645b5363241318ba1e88e8c8b9f0fd9e0fc334157ffd5cbcef393edeb9  /tmp/nuvio-guida-tv.patch' | sha256sum -c -
+          git apply --check /tmp/nuvio-guida-tv.patch
+          git apply /tmp/nuvio-guida-tv.patch
+      - name: Create signing key
+        run: |
+          keytool -genkeypair -keystore "$RUNNER_TEMP/guida-tv.jks" \
+            -storepass android -alias androiddebugkey -keypass android \
+            -dname "CN=Nuvio Guida TV,O=Android,C=IT" -keyalg RSA -keysize 2048 -validity 10000
+          echo "NUVIO_RELEASE_STORE_FILE=$RUNNER_TEMP/guida-tv.jks" >> "$GITHUB_ENV"
+          echo "NUVIO_RELEASE_KEY_ALIAS=androiddebugkey" >> "$GITHUB_ENV"
+          echo "NUVIO_RELEASE_KEY_PASSWORD=android" >> "$GITHUB_ENV"
+          echo "NUVIO_RELEASE_STORE_PASSWORD=android" >> "$GITHUB_ENV"
+      - name: Build separate Fire TV APK
+        run: ./gradlew :app:assembleFullDebug --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nuvio-guida-tv-universal-apk
+          path: app/build/outputs/apk/full/debug/*universal*.apk
+          if-no-files-found: error
+          retention-days: 30
