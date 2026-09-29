@@ -31,7 +31,8 @@ private val tf=DateTimeFormatter.ofPattern("HH:mm",Locale.ITALIAN).withZone(zone
 private data class Programme(val title:String,val start:Instant,val end:Instant)
 private data class Channel(val id:String,val name:String,val logo:String,val programmes:List<Programme>)
 private data class EpgSource(val name:String,val url:String,val enabled:Boolean=true,val country:String="")
-private data class EpgData(val names:Map<String,List<String>>,val programmes:Map<String,List<Programme>>)\nprivate val defaultEpg=mapOf(
+private data class EpgData(val names:Map<String,List<String>>,val programmes:Map<String,List<Programme>>)
+private val defaultEpg=mapOf(
 "it" to listOf(EpgSource("Italia · Sky","https://iptv-org.github.io/epg/guides/it/guidatv.sky.it.epg.xml",true,"it"),EpgSource("Italia · Mediaset","https://iptv-org.github.io/epg/guides/it/mediaset.it.epg.xml",true,"it")),
 "uk" to listOf(EpgSource("UK","https://iptv-org.github.io/epg/guides/uk/ontvtonight.com.epg.xml",true,"uk")),
 "fr" to listOf(EpgSource("Francia","https://iptv-org.github.io/epg/guides/fr/programme-tv.net.epg.xml",true,"fr")),
