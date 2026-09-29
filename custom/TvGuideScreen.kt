@@ -30,8 +30,24 @@ private val zone=ZoneId.of("Europe/Rome")
 private val tf=DateTimeFormatter.ofPattern("HH:mm",Locale.ITALIAN).withZone(zone)
 private data class Programme(val title:String,val start:Instant,val end:Instant)
 private data class Channel(val id:String,val name:String,val logo:String,val programmes:List<Programme>)
-private data class EpgSource(val name:String,val url:String,val enabled:Boolean=true)
-private data class EpgData(val names:Map<String,List<String>>,val programmes:Map<String,List<Programme>>)
+private data class EpgSource(val name:String,val url:String,val enabled:Boolean=true,val country:String="")
+private data class EpgData(val names:Map<String,List<String>>,val programmes:Map<String,List<Programme>>)\nprivate val defaultEpg=mapOf(
+"it" to listOf(EpgSource("Italia · Sky","https://iptv-org.github.io/epg/guides/it/guidatv.sky.it.epg.xml",true,"it"),EpgSource("Italia · Mediaset","https://iptv-org.github.io/epg/guides/it/mediaset.it.epg.xml",true,"it")),
+"uk" to listOf(EpgSource("UK","https://iptv-org.github.io/epg/guides/uk/ontvtonight.com.epg.xml",true,"uk")),
+"fr" to listOf(EpgSource("Francia","https://iptv-org.github.io/epg/guides/fr/programme-tv.net.epg.xml",true,"fr")),
+"de" to listOf(EpgSource("Germania","https://iptv-org.github.io/epg/guides/de/hd-plus.de.epg.xml",true,"de")),
+"pt" to listOf(EpgSource("Portogallo","https://iptv-org.github.io/epg/guides/pt/meo.pt.epg.xml",true,"pt")),
+"es" to listOf(EpgSource("Spagna","https://iptv-org.github.io/epg/guides/es/programacion-tv.elpais.com.epg.xml",true,"es")),
+"al" to listOf(EpgSource("Albania","https://iptv-org.github.io/epg/guides/al/ipko.com.epg.xml",true,"al")),
+"tr" to listOf(EpgSource("Turchia · TV+","https://iptv-org.github.io/epg/guides/tr/tvplus.com.tr.epg.xml",true,"tr"),EpgSource("Turchia · Digiturk","https://iptv-org.github.io/epg/guides/tr/digiturk.com.tr.epg.xml",true,"tr")),
+"nl" to listOf(EpgSource("Paesi Bassi","https://iptv-org.github.io/epg/guides/nl/delta.nl.epg.xml",true,"nl")),
+"ar" to listOf(EpgSource("Argentina","https://iptv-org.github.io/epg/guides/ar/mi.tv.epg.xml",true,"ar")),
+"ru" to listOf(EpgSource("Russia","https://iptv-org.github.io/epg/guides/ru/tv.yandex.ru.epg.xml",true,"ru")),
+"ro" to listOf(EpgSource("Romania","https://iptv-org.github.io/epg/guides/ro/programetv.ro.epg.xml",true,"ro")),
+"pl" to listOf(EpgSource("Polonia","https://iptv-org.github.io/epg/guides/pl/programtv.onet.pl.epg.xml",true,"pl")),
+"bg" to listOf(EpgSource("Bulgaria","https://iptv-org.github.io/epg/guides/bg/vivacom.bg.epg.xml",true,"bg")),
+"bk" to listOf(EpgSource("Balcani · Serbia","https://iptv-org.github.io/epg/guides/rs/mts.rs.epg.xml",true,"bk"),EpgSource("Balcani · Bosnia","https://iptv-org.github.io/epg/guides/ba/mtel.ba.epg.xml",true,"bk"))
+)
 
 @Composable fun TvGuideScreen(onOpenStream:(String,String,String)->Unit){
  val context=LocalContext.current;val prefs=remember{context.getSharedPreferences("tvguide_epg",0)}
@@ -41,10 +57,10 @@ private data class EpgData(val names:Map<String,List<String>>,val programmes:Map
  var sourceName by rememberSaveable{mutableStateOf("")};var sourceUrl by rememberSaveable{mutableStateOf("")};var revision by remember{mutableStateOf(0)}
  var sources by remember{mutableStateOf(loadSources(prefs.getString("sources","[]").orEmpty()))}
  val day=remember(dayOffset){LocalDate.now(zone).plusDays(dayOffset.toLong())}
- LaunchedEffect(country,day,revision,sources){message="Caricamento canali e programmi…";try{channels=withContext(Dispatchers.IO){mergeEpg(loadChannels(country,day),sources.filter{it.enabled},day)};message=if(channels.isEmpty())"Nessun canale disponibile" else ""}catch(e:Exception){message="Guida non disponibile: "+(e.localizedMessage?:"errore di rete")}}
+ LaunchedEffect(country,day,revision,sources){message="Caricamento canali e programmi…";try{channels=withContext(Dispatchers.IO){mergeEpg(loadChannels(country,day),(defaultEpg[country].orEmpty()+sources.filter{it.enabled&&(it.country.isBlank()||it.country==country)}),day)};message=if(channels.isEmpty())"Nessun canale disponibile" else ""}catch(e:Exception){message="Guida non disponibile: "+(e.localizedMessage?:"errore di rete")}}
  LaunchedEffect(pending){val ch=pending?:return@LaunchedEffect;try{onOpenStream(withContext(Dispatchers.IO){resolveStream(ch.id)},ch.name,ch.id)}catch(e:Exception){message="Impossibile aprire "+ch.name}finally{pending=null}}
  Column(Modifier.fillMaxSize().background(Color(0xFF10131D)).padding(start=36.dp,top=24.dp,end=24.dp)){
-  Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){Text("Guida TV · TvVoo",color=Color.White,fontSize=28.sp,fontWeight=FontWeight.Bold);GuideButton("EPG ("+sources.count{it.enabled}+")"){showEpg=!showEpg};GuideButton("Aggiorna EPG"){revision++}}
+  Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){Text("Guida TV · TvVoo",color=Color.White,fontSize=28.sp,fontWeight=FontWeight.Bold);GuideButton("EPG ("+(defaultEpg[country].orEmpty().size+sources.count{it.enabled})+")"){showEpg=!showEpg};GuideButton("Aggiorna EPG"){revision++}}
   if(showEpg){Column(Modifier.fillMaxWidth().background(Color(0xFF1B2030),RoundedCornerShape(8.dp)).padding(10.dp)){Text("Sorgenti XMLTV",color=Color.White,fontWeight=FontWeight.Bold);Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){TextField(sourceName,{sourceName=it},label={Text("Nome")},modifier=Modifier.width(180.dp));TextField(sourceUrl,{sourceUrl=it},label={Text("URL XMLTV")},modifier=Modifier.width(500.dp));GuideButton("Aggiungi"){if(sourceUrl.startsWith("http")){sources=sources+EpgSource(sourceName.ifBlank{"EPG "+(sources.size+1)},sourceUrl);saveSources(prefs,sources);sourceName="";sourceUrl="";revision++}}}
    sources.forEachIndexed{i,s->Row(horizontalArrangement=Arrangement.spacedBy(8.dp),modifier=Modifier.padding(top=5.dp)){GuideButton((if(s.enabled)"✓ " else "○ ")+s.name,selected=s.enabled){sources=sources.toMutableList().also{it[i]=s.copy(enabled=!s.enabled)};saveSources(prefs,sources);revision++};Text(s.url,color=Color.LightGray,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.width(480.dp).padding(10.dp));GuideButton("Elimina"){sources=sources.toMutableList().also{it.removeAt(i)};saveSources(prefs,sources);revision++}}}
   }}
