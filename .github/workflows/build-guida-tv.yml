@@ -126,23 +126,11 @@ jobs:
           echo "NUVIO_RELEASE_KEY_ALIAS=androiddebugkey" >> "$GITHUB_ENV"
           echo "NUVIO_RELEASE_KEY_PASSWORD=android" >> "$GITHUB_ENV"
           echo "NUVIO_RELEASE_STORE_PASSWORD=android" >> "$GITHUB_ENV"
-      - name: Build Fire TV and Smartphone APKs
-        run: |
-          ./gradlew :app:assembleFullDebug --stacktrace
-          mkdir -p dist/firetv dist/mobile
-          APK="$(find app/build/outputs/apk/full/debug -type f -name '*.apk' | head -n 1)"
-          test -n "$APK"
-          cp "$APK" dist/firetv/Nuvio-GuidaTV-FireTV.apk
-          cp "$APK" dist/mobile/Nuvio-GuidaTV-Mobile.apk
+      - name: Build separate Fire TV APK
+        run: ./gradlew :app:assembleFullDebug --stacktrace
       - uses: actions/upload-artifact@v4
         with:
-          name: Nuvio-GuidaTV-FireTV
-          path: dist/firetv/Nuvio-GuidaTV-FireTV.apk
-          if-no-files-found: error
-          retention-days: 30
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Nuvio-GuidaTV-Mobile
-          path: dist/mobile/Nuvio-GuidaTV-Mobile.apk
+          name: nuvio-guida-tv-universal-apk
+          path: app/build/outputs/apk/full/debug/*universal*.apk
           if-no-files-found: error
           retention-days: 30
