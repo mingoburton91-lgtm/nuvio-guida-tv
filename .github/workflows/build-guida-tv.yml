@@ -112,6 +112,10 @@ jobs:
           git apply /tmp/nuvio-guida-tv.patch
           echo "=== FILE GUIDA TV ==="
           grep -RIlE "Guida TV|TvVoo|Palinsesto non disponibile" app/src 2>/dev/null || true
+          echo "=== CONTENUTO TV GUIDE ==="
+          sed -n '1,260p' app/src/main/java/com/nuvio/tv/ui/screens/tvguide/TvGuideScreen.kt 2>/dev/null || true
+          echo "=== FILE AUTH / LOGIN / QR ==="
+          find app/src/main/java -type f -name '*.kt' -print0 | xargs -0 grep -IlEi 'auth|login|account|qr|device.?code|authorize' 2>/dev/null | head -n 80 || true
       - name: Create signing key
         run: |
           keytool -genkeypair -keystore "$RUNNER_TEMP/guida-tv.jks" \
