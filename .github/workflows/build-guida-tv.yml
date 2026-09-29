@@ -2,6 +2,10 @@ name: Nuvio Guida TV APK
 
 on:
   workflow_dispatch:
+  push:
+    branches: [dev]
+    paths:
+      - '.github/workflows/build-guida-tv.yml'
 
 permissions:
   contents: read
