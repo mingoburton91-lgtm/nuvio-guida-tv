@@ -4,8 +4,6 @@ on:
   workflow_dispatch:
   push:
     branches: [dev]
-    paths:
-      - '.github/workflows/build-guida-tv.yml'
 
 permissions:
   contents: read
@@ -30,18 +28,6 @@ jobs:
           fi
           echo "Uso $SDKMANAGER"
           "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865"
-      - name: Configure official Nuvio backend
-        shell: bash
-        run: |
-          cat > local.dev.properties <<'EOF'
-          NUVIO_SUPABASE_URL=https://api.nuvio.tv
-          NUVIO_SUPABASE_ANON_KEY=sb_publishable_1Clq8rlTVACkdcZuqr6_AD__xUUC_EN
-          NUVIO_SUPABASE_FALLBACK_URL=
-          TV_LOGIN_WEB_BASE_URL=https://nuvio.tv/tv-login
-          DEVICE_LOGIN_WEB_BASE_URL=https://nuvio.tv/link
-          EOF
-          cp local.dev.properties local.properties
-          echo "Backend Nuvio ufficiale configurato"
       - name: Apply guide changes
         shell: bash
         run: |
