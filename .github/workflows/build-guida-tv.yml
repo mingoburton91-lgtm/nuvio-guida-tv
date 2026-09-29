@@ -21,7 +21,15 @@ jobs:
           java-version: '17'
           cache: gradle
       - name: Install Android SDK
-        run: $ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865"
+        run: |
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager 2>/dev/null | head -n 1)"
+          if [ -z "$SDKMANAGER" ]; then
+            echo "sdkmanager non trovato; contenuto SDK:"
+            find "$ANDROID_HOME" -maxdepth 3 -type f -name sdkmanager -o -type d -name cmdline-tools
+            exit 1
+          fi
+          echo "Uso $SDKMANAGER"
+          "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865"
       - name: Apply guide changes
         shell: bash
         run: |
