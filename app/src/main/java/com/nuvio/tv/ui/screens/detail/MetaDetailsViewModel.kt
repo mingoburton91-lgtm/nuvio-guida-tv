@@ -907,9 +907,7 @@ class MetaDetailsViewModel @Inject constructor(
 
     private fun buildMetaLoadErrorMessage(originalMessage: String?, lookupId: String): String {
         val base = originalMessage ?: "Failed to load metadata"
-        return "$base
-
-ID: $lookupId"
+        return "$base\\n\\nID: $lookupId"
     }
 
     private fun syncEffectiveContentId(meta: Meta) {
@@ -3119,8 +3117,7 @@ ID: $lookupId"
             val fmt = DateTimeFormatter.ofPattern("HH:mm", Locale.ITALIAN).withZone(ZoneId.of("Europe/Rome"))
             val description = buildString {
                 append("● IN ONDA  ").append(fmt.format(current.start)).append("–").append(fmt.format(current.end)).append(" · ").append(current.title)
-                if (next != null) append("
-A seguire  ").append(fmt.format(next.start)).append("–").append(fmt.format(next.end)).append(" · ").append(next.title)
+                if (next != null) append("\\nA seguire  ").append(fmt.format(next.start)).append("–").append(fmt.format(next.end)).append(" · ").append(next.title)
             }
             meta.copy(description = description)
         } catch (_: Exception) {
