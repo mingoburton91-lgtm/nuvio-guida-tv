@@ -994,10 +994,10 @@ class MetaDetailsViewModel @Inject constructor(
     }
 
     private suspend fun applyMetaWithEnrichment(meta: Meta) {
-        val displayMeta = if (isTvVooLive(meta)) applyTvVooNowNext(meta) else meta
         // Fire all independent async jobs immediately — they run in parallel.
         loadMoreLikeThisAsync(meta)
-        val enriched = enrichMeta(meta)
+        val baseEnriched = enrichMeta(meta)
+        val enriched = if (isTvVooLive(baseEnriched)) applyTvVooNowNext(baseEnriched) else baseEnriched
 
         syncEffectiveContentId(enriched)
         val cachedNextToWatch = metaDetailsSessionState.getNextToWatch(
