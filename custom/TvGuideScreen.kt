@@ -32,7 +32,7 @@ private data class Programme(val title:String,val start:Instant,val end:Instant)
 private data class Channel(val id:String,val name:String,val logo:String,val programmes:List<Programme>)
 private data class EpgSource(val name:String,val url:String,val enabled:Boolean=true,val country:String="")
 private data class EpgData(val names:Map<String,List<String>>,val programmes:Map<String,List<Programme>>)
-private data class StreamChoice(val name:String,val url:String)
+private data class StreamChoice(val label:String,val url:String)
 private val defaultEpg=mapOf(
 "it" to listOf(EpgSource("Italia · Sky","https://iptv-org.github.io/epg/guides/it/guidatv.sky.it.epg.xml",true,"it"),EpgSource("Italia · Mediaset","https://iptv-org.github.io/epg/guides/it/mediaset.it.epg.xml",true,"it")),
 "uk" to listOf(EpgSource("UK","https://iptv-org.github.io/epg/guides/uk/ontvtonight.com.epg.xml",true,"uk")),
@@ -56,12 +56,12 @@ private val defaultEpg=mapOf(
  var country by rememberSaveable{mutableStateOf("it")};var dayOffset by rememberSaveable{mutableStateOf(0)}
  var channels by remember{mutableStateOf<List<Channel>>(emptyList())};var message by remember{mutableStateOf("Caricamento guida TV…")}
  var pending by remember{mutableStateOf<Channel?>(null)};var showEpg by rememberSaveable{mutableStateOf(false)}
- var streamChannel by remember{mutableStateOf<Channel?>(null)};var streamChoices by remember{mutableStateOf<List<StreamChoice>>(emptyList())};var loadingStreams by remember{mutableStateOf(false)}
+ var sourceChannel by remember{mutableStateOf<Channel?>(null)};var sourceChoices by remember{mutableStateOf<List<StreamChoice>>(emptyList())}
  var sourceName by rememberSaveable{mutableStateOf("")};var sourceUrl by rememberSaveable{mutableStateOf("")};var revision by remember{mutableStateOf(0)}
  var sources by remember{mutableStateOf(loadSources(prefs.getString("sources","[]").orEmpty()))}
  val day=remember(dayOffset){LocalDate.now(zone).plusDays(dayOffset.toLong())}
  LaunchedEffect(country,day,revision,sources){message="Caricamento canali e programmi…";try{channels=withContext(Dispatchers.IO){mergeEpg(loadChannels(country,day),(defaultEpg[country].orEmpty()+sources.filter{it.enabled&&(it.country.isBlank()||it.country==country)}),day)};message=if(channels.isEmpty())"Nessun canale disponibile" else ""}catch(e:Exception){message="Guida non disponibile: "+(e.localizedMessage?:"errore di rete")}}
- LaunchedEffect(pending){val ch=pending?:return@LaunchedEffect;loadingStreams=true;streamChannel=ch;try{streamChoices=withContext(Dispatchers.IO){resolveStreams(ch.id)}}catch(e:Exception){message="Impossibile trovare sorgenti per "+ch.name;streamChannel=null}finally{loadingStreams=false;pending=null}}
+ LaunchedEffect(pending){val ch=pending?:return@LaunchedEffect;try{sourceChoices=withContext(Dispatchers.IO){resolveStreamChoices(ch.id)};sourceChannel=ch;if(sourceChoices.isEmpty())message="Nessuna sorgente disponibile per "+ch.name}catch(e:Exception){message="Impossibile aprire "+ch.name}finally{pending=null}}
  if(showEpg){
   Column(Modifier.fillMaxSize().background(Color(0xFF10131D)).padding(start=36.dp,top=24.dp,end=24.dp)){
    Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){GuideButton("← Guida TV"){showEpg=false};Text("Gestione EPG",color=Color.White,fontSize=28.sp,fontWeight=FontWeight.Bold)}
@@ -77,12 +77,12 @@ private val defaultEpg=mapOf(
 "+p.title,Modifier.width(235.dp).height(82.dp),selected=live){if(pending==null)pending=ch}}}}}}
  }
  }
- val selectedChannel=streamChannel
- if(selectedChannel!=null){
-  Column(Modifier.fillMaxSize().background(Color(0xF510131D)).padding(start=70.dp,top=70.dp,end=70.dp)){
-   Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){GuideButton("← Indietro"){streamChannel=null;streamChoices=emptyList()};Text("Sorgenti · "+selectedChannel.name,color=Color.White,fontSize=26.sp,fontWeight=FontWeight.Bold)}
-   Spacer(Modifier.height(18.dp))
-   if(loadingStreams)Text("Caricamento sorgenti…",color=Color.White) else if(streamChoices.isEmpty())Text("Nessuna sorgente disponibile",color=Color.White) else LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp)){items(streamChoices){choice->GuideButton(choice.name,Modifier.fillMaxWidth()){onOpenStream(choice.url,selectedChannel.name,selectedChannel.id);streamChannel=null;streamChoices=emptyList()}}}
+ val sc=sourceChannel
+ if(sc!=null){
+  Column(Modifier.fillMaxSize().background(Color(0xFF10131D)).padding(start=70.dp,top=60.dp,end=70.dp)){
+   GuideButton("← Guida TV"){sourceChannel=null;sourceChoices=emptyList()}
+   Spacer(Modifier.height(16.dp));Text("Scegli sorgente · "+sc.name,color=Color.White,fontSize=26.sp,fontWeight=FontWeight.Bold);Spacer(Modifier.height(14.dp))
+   LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp)){items(sourceChoices){choice->GuideButton(choice.label,Modifier.fillMaxWidth()){onOpenStream(choice.url,sc.name,sc.id);sourceChannel=null;sourceChoices=emptyList()}}}
   }
  }
 
@@ -97,7 +97,7 @@ private fun parseTime(v:String?):Instant?{if(v.isNullOrBlank())return null;retur
 private fun norm(s:String):String{var x=Normalizer.normalize(s,Normalizer.Form.NFD).replace(Regex("\\p{M}+"),"").uppercase(Locale.ROOT);x=x.replace(Regex("\\((BACKUP|HD|FHD|UHD|4K)\\)")," ").replace(Regex("\\b(BACKUP|FHD|UHD|4K|HD)\\b")," ");return x.replace(Regex("[^A-Z0-9]+")," ").trim()}
 private fun loadSources(raw:String):List<EpgSource>{return try{val a=JSONArray(raw);(0 until a.length()).map{val o=a.getJSONObject(it);EpgSource(o.optString("name"),o.optString("url"),o.optBoolean("enabled",true))}}catch(_:Exception){emptyList()}}
 private fun saveSources(p:android.content.SharedPreferences,s:List<EpgSource>){val a=JSONArray();s.forEach{a.put(JSONObject().put("name",it.name).put("url",it.url).put("enabled",it.enabled))};p.edit().putString("sources",a.toString()).apply()}
-private fun resolveStreams(id:String):List<StreamChoice>{val e=URLEncoder.encode(id,"UTF-8").replace("+","%20");val a=fetchJson(ADDON+"/stream/tv/"+e+".json").optJSONArray("streams")?:return emptyList();val out=ArrayList<StreamChoice>();for(i in 0 until a.length()){val o=a.optJSONObject(i)?:continue;val u=o.optString("url");if(u.startsWith("http")){val n=o.optString("name").ifBlank{o.optString("title").ifBlank{"Sorgente "+(i+1)}};out+=StreamChoice(n,u)}};return out.distinctBy{it.url}}
+private fun resolveStreamChoices(id:String):List<StreamChoice>{val e=URLEncoder.encode(id,"UTF-8").replace("+","%20");val a=fetchJson(ADDON+"/stream/tv/"+e+".json").optJSONArray("streams")?:return emptyList();val out=ArrayList<StreamChoice>();for(i in 0 until a.length()){val o=a.optJSONObject(i)?:continue;val u=o.optString("url");if(u.startsWith("http")){val label=o.optString("name").ifBlank{o.optString("title").ifBlank{"Sorgente "+(i+1)}};out.add(StreamChoice(label,u))}};return out.distinctBy{it.url}}
 private fun fetchJson(address:String):JSONObject{val c=URL(address).openConnection() as HttpURLConnection;c.connectTimeout=15000;c.readTimeout=25000;try{if(c.responseCode !in 200..299)error("HTTP "+c.responseCode);return JSONObject(c.inputStream.bufferedReader().use{it.readText()})}finally{c.disconnect()}}
 
 private fun visibleProgrammes(programmes:List<Programme>,day:LocalDate):List<Programme>{if(day!=LocalDate.now(zone))return programmes;val now=Instant.now();val current=programmes.indexOfFirst{!it.start.isAfter(now)&&it.end.isAfter(now)};if(current>=0)return programmes.drop(current);val next=programmes.indexOfFirst{it.start.isAfter(now)};return if(next>=0)programmes.drop(next) else programmes.takeLast(1)}
