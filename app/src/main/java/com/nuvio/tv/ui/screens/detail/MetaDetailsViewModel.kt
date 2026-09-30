@@ -3098,8 +3098,13 @@ class MetaDetailsViewModel @Inject constructor(
 
     private fun isTvVooLive(meta: Meta): Boolean {
         val origin = preferredAddonBaseUrl.orEmpty()
-        return origin.contains("tvvoo.hayd.uk", ignoreCase = true) &&
-            (itemType.equals("tv", true) || meta.apiType.equals("tv", true))
+        val isTvType = itemType.equals("tv", true) || meta.apiType.equals("tv", true)
+        val tvVooOrigin = origin.contains("tvvoo.hayd.uk", ignoreCase = true)
+        val tvVooId = itemId.startsWith("vavoo", true) ||
+            itemId.contains("vavoo", true) ||
+            meta.id.startsWith("vavoo", true) ||
+            meta.id.contains("vavoo", true)
+        return isTvType && (tvVooOrigin || tvVooId || origin.isBlank())
     }
 
     private suspend fun applyTvVooNowNext(meta: Meta): Meta = kotlinx.coroutines.withContext(Dispatchers.IO) {
