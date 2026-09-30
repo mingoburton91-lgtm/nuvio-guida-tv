@@ -35,5 +35,14 @@ data class MetaPreviewDto(
     @Json(name = "links") val links: List<MetaLinkDto>? = null,
     @Json(name = "trailers") val trailers: List<MetaTrailerDto>? = null,
     @Json(name = "behaviorHints") val behaviorHints: MetaBehaviorHintsDto? = null,
-    @Json(name = "trailerStreams") val trailerStreams: List<TrailerStreamDto>? = null
+    @Json(name = "trailerStreams") val trailerStreams: List<TrailerStreamDto>? = null,
+    @Json(name = "videos") val videos: List<CatalogProgrammeDto>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class CatalogProgrammeDto(
+    @Json(name = "title") val title: String? = null,
+    @Json(name = "name") val name: String? = null,
+    @Json(name = "startTime") val startTime: String? = null,
+    @Json(name = "endTime") val endTime: String? = null
 )
