@@ -3093,7 +3093,7 @@ class MetaDetailsViewModel @Inject constructor(
         trailerFetchJob?.cancel()
         nextToWatchJob?.cancel()
     }
-    private data class TvEpgProgramme(val title: String, val start: Instant, val end: Instant)
+    private data class TvEpgProgramme(val title: String, val description: String?, val start: Instant, val end: Instant)
     private data class TvEpgChannel(val names: List<String>, val programmes: MutableList<TvEpgProgramme>)
 
     private fun isTvVooLive(meta: Meta): Boolean {
@@ -3106,7 +3106,7 @@ class MetaDetailsViewModel @Inject constructor(
         }
         // Home hero intentionally passes an empty addonBaseUrl. TvVoo live entries can also
         // arrive with a non-"tv" apiType, so do not reject them by content type here.
-        return tvVooOrigin || tvVooIdentity || origin.isBlank()
+        return tvVooOrigin || tvVooIdentity || meta.apiType.equals("tv", true)
     }
 
     private suspend fun applyTvVooNowNext(meta: Meta): Meta = kotlinx.coroutines.withContext(Dispatchers.IO) {
@@ -3124,7 +3124,11 @@ class MetaDetailsViewModel @Inject constructor(
             val fmt = DateTimeFormatter.ofPattern("HH:mm", Locale.ITALIAN).withZone(ZoneId.of("Europe/Rome"))
             val description = buildString {
                 append("● IN ONDA  ").append(fmt.format(current.start)).append("–").append(fmt.format(current.end)).append(" · ").append(current.title)
-                if (next != null) append("\\nA seguire  ").append(fmt.format(next.start)).append("–").append(fmt.format(next.end)).append(" · ").append(next.title)
+                current.description?.takeIf { it.isNotBlank() }?.let { append("\\n").append(it) }
+                if (next != null) {
+                    append("\\nA seguire  ").append(fmt.format(next.start)).append("–").append(fmt.format(next.end)).append(" · ").append(next.title)
+                    next.description?.takeIf { it.isNotBlank() }?.let { append("\\n").append(it) }
+                }
             }
             meta.copy(description = description)
         } catch (_: Exception) {
@@ -3180,13 +3184,15 @@ class MetaDetailsViewModel @Inject constructor(
                     val start = parseTvEpgTime(parser.getAttributeValue(null, "start"))
                     val end = parseTvEpgTime(parser.getAttributeValue(null, "stop"))
                     var title = "Programma"
+                    var description: String? = null
                     var inner = parser.next()
                     while (!(inner == XmlPullParser.END_TAG && parser.name == "programme")) {
                         if (inner == XmlPullParser.START_TAG && parser.name == "title") title = parser.nextText()
+                        else if (inner == XmlPullParser.START_TAG && parser.name == "desc") description = parser.nextText()
                         inner = parser.next()
                     }
                     if (id in matchingIds && start != null && end != null) {
-                        programmes.add(TvEpgProgramme(title, start, end))
+                        programmes.add(TvEpgProgramme(title, description, start, end))
                     }
                 }
                 event = parser.next()
