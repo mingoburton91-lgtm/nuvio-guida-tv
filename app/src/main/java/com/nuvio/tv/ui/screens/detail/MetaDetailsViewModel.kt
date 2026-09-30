@@ -3131,13 +3131,16 @@ class MetaDetailsViewModel @Inject constructor(
     }
 
     private fun readTvEpg(address: String, wantedName: String): List<TvEpgProgramme> {
-        val connection = URL(address).openConnection() as HttpURLConnection
-        connection.connectTimeout = 10000
-        connection.readTimeout = 20000
+        fun openConnection(): HttpURLConnection = (URL(address).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 10000
+            readTimeout = 20000
+        }
+
+        val matchingIds = HashSet<String>()
+        var connection = openConnection()
         try {
             val parser = XmlPullParserFactory.newInstance().newPullParser()
             parser.setInput(connection.inputStream, "UTF-8")
-            val channels = HashMap<String, TvEpgChannel>()
             var event = parser.eventType
             while (event != XmlPullParser.END_DOCUMENT) {
                 if (event == XmlPullParser.START_TAG && parser.name == "channel") {
@@ -3148,12 +3151,30 @@ class MetaDetailsViewModel @Inject constructor(
                         if (inner == XmlPullParser.START_TAG && parser.name == "display-name") names.add(parser.nextText())
                         inner = parser.next()
                     }
-                    if (names.any { normalizeTvEpgName(it) == wantedName } || normalizeTvEpgName(id) == wantedName) {
-                        channels[id] = TvEpgChannel(names, ArrayList())
+                    val normalizedId = normalizeTvEpgName(id.removeSuffix(".it"))
+                    if (names.any { normalizeTvEpgName(it) == wantedName } ||
+                        normalizedId == wantedName ||
+                        normalizeTvEpgName(id) == wantedName) {
+                        matchingIds.add(id)
                     }
-                } else if (event == XmlPullParser.START_TAG && parser.name == "programme") {
+                }
+                event = parser.next()
+            }
+        } finally {
+            connection.disconnect()
+        }
+
+        if (matchingIds.isEmpty()) return emptyList()
+
+        val programmes = ArrayList<TvEpgProgramme>()
+        connection = openConnection()
+        try {
+            val parser = XmlPullParserFactory.newInstance().newPullParser()
+            parser.setInput(connection.inputStream, "UTF-8")
+            var event = parser.eventType
+            while (event != XmlPullParser.END_DOCUMENT) {
+                if (event == XmlPullParser.START_TAG && parser.name == "programme") {
                     val id = parser.getAttributeValue(null, "channel").orEmpty()
-                    val target = channels[id]
                     val start = parseTvEpgTime(parser.getAttributeValue(null, "start"))
                     val end = parseTvEpgTime(parser.getAttributeValue(null, "stop"))
                     var title = "Programma"
@@ -3162,14 +3183,16 @@ class MetaDetailsViewModel @Inject constructor(
                         if (inner == XmlPullParser.START_TAG && parser.name == "title") title = parser.nextText()
                         inner = parser.next()
                     }
-                    if (target != null && start != null && end != null) target.programmes.add(TvEpgProgramme(title, start, end))
+                    if (id in matchingIds && start != null && end != null) {
+                        programmes.add(TvEpgProgramme(title, start, end))
+                    }
                 }
                 event = parser.next()
             }
-            return channels.values.flatMap { it.programmes }.sortedBy { it.start }
         } finally {
             connection.disconnect()
         }
+        return programmes.sortedBy { it.start }
     }
 
     private fun parseTvEpgTime(value: String?): Instant? {
