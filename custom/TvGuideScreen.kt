@@ -31,7 +31,7 @@ private val tf=DateTimeFormatter.ofPattern("HH:mm",Locale.ITALIAN).withZone(zone
 private data class Programme(val title:String,val start:Instant,val end:Instant)
 private data class Channel(val id:String,val name:String,val logo:String,val programmes:List<Programme>)
 private data class EpgSource(val name:String,val url:String,val enabled:Boolean=true,val country:String="")
-private data class EpgData(val names:Map<String,List<String>>,val programmes:Map<String,List<Programme>>)
+private data class EpgData(val names:Map<String,List<String>>,val programmes:Map<String,List<Programme>>)\nprivate data class StreamChoice(val name:String,val url:String)
 private val defaultEpg=mapOf(
 "it" to listOf(EpgSource("Italia · Sky","https://iptv-org.github.io/epg/guides/it/guidatv.sky.it.epg.xml",true,"it"),EpgSource("Italia · Mediaset","https://iptv-org.github.io/epg/guides/it/mediaset.it.epg.xml",true,"it")),
 "uk" to listOf(EpgSource("UK","https://iptv-org.github.io/epg/guides/uk/ontvtonight.com.epg.xml",true,"uk")),
@@ -54,51 +54,38 @@ private val defaultEpg=mapOf(
  val context=LocalContext.current;val prefs=remember{context.getSharedPreferences("tvguide_epg",0)}
  var country by rememberSaveable{mutableStateOf("it")};var dayOffset by rememberSaveable{mutableStateOf(0)}
  var channels by remember{mutableStateOf<List<Channel>>(emptyList())};var message by remember{mutableStateOf("Caricamento guida TV…")}
- var pending by remember{mutableStateOf<Channel?>(null)};var epgMenu by rememberSaveable{mutableStateOf(false)}
+ var pending by remember{mutableStateOf<Channel?>(null)};var showEpg by rememberSaveable{mutableStateOf(false)}\n var streamChannel by remember{mutableStateOf<Channel?>(null)};var streamChoices by remember{mutableStateOf<List<StreamChoice>>(emptyList())};var loadingStreams by remember{mutableStateOf(false)}
  var sourceName by rememberSaveable{mutableStateOf("")};var sourceUrl by rememberSaveable{mutableStateOf("")};var sourceCountry by rememberSaveable{mutableStateOf("it")};var revision by remember{mutableStateOf(0)}
  var sources by remember{mutableStateOf(loadSources(prefs.getString("sources","[]").orEmpty()))}
  val day=remember(dayOffset){LocalDate.now(zone).plusDays(dayOffset.toLong())}
  LaunchedEffect(country,day,revision,sources){message="Caricamento canali e programmi…";try{channels=withContext(Dispatchers.IO){mergeEpg(loadChannels(country,day),(defaultEpg[country].orEmpty()+sources.filter{it.enabled&&it.country==country}),day)};message=if(channels.isEmpty())"Nessun canale disponibile" else ""}catch(e:Exception){message="Guida non disponibile: "+(e.localizedMessage?:"errore di rete")}}
- LaunchedEffect(pending){val ch=pending?:return@LaunchedEffect;try{onOpenStream(withContext(Dispatchers.IO){resolveStream(ch.id)},ch.name,ch.id)}catch(e:Exception){message="Impossibile aprire "+ch.name}finally{pending=null}}
- if(epgMenu){
-  EpgMenuScreen(
-   sources=sources,
-   sourceName=sourceName,
-   sourceUrl=sourceUrl,
-   sourceCountry=sourceCountry,
-   onNameChange={sourceName=it},
-   onUrlChange={sourceUrl=it},
-   onCountryChange={sourceCountry=it},
-   onBack={epgMenu=false},
-   onAdd={
-    if(sourceUrl.startsWith("http")){
-     sources=sources+EpgSource(sourceName.ifBlank{"EPG "+(sources.size+1)},sourceUrl,true,sourceCountry)
-     saveSources(prefs,sources);sourceName="";sourceUrl="";revision++
-    }
-   },
-   onToggle={i->val old=sources[i];sources=sources.toMutableList().also{it[i]=old.copy(enabled=!old.enabled)};saveSources(prefs,sources);revision++},
-   onDelete={i->sources=sources.toMutableList().also{it.removeAt(i)};saveSources(prefs,sources);revision++}
-  )
-  return
- }
+ LaunchedEffect(pending){val ch=pending?:return@LaunchedEffect;loadingStreams=true;streamChannel=ch;try{streamChoices=withContext(Dispatchers.IO){resolveStreams(ch.id)}}catch(e:Exception){message="Impossibile trovare sorgenti per "+ch.name;streamChannel=null}finally{loadingStreams=false;pending=null}}
+ if(showEpg){
+  Column(Modifier.fillMaxSize().background(Color(0xFF10131D)).padding(start=36.dp,top=24.dp,end=24.dp)){
+   Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){GuideButton("← Guida TV"){showEpg=false};Text("Gestione EPG",color=Color.White,fontSize=28.sp,fontWeight=FontWeight.Bold)}
+   Spacer(Modifier.height(14.dp));Text("EPG automatiche",color=Color.White,fontSize=20.sp,fontWeight=FontWeight.Bold)
+   defaultEpg.forEach{(code,list)->Row(Modifier.fillMaxWidth().padding(vertical=2.dp)){Text(countries.firstOrNull{it.first==code}?.second?:code,color=Color.White,modifier=Modifier.width(150.dp));Text(list.joinToString{"✓ "+it.name},color=Color.LightGray)}}
+   Spacer(Modifier.height(12.dp));Text("Aggiungi EPG manuale",color=Color.White,fontSize=20.sp,fontWeight=FontWeight.Bold)
+   Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){countries.forEach{(c,n)->GuideButton(n,selected=sourceCountry==c){sourceCountry=c}}}
+   Spacer(Modifier.height(8.dp));Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){TextField(sourceName,{sourceName=it},label={Text("Nome")},modifier=Modifier.width(180.dp));TextField(sourceUrl,{sourceUrl=it},label={Text("URL XMLTV")},modifier=Modifier.width(500.dp));GuideButton("Aggiungi"){if(sourceUrl.startsWith("http")){sources=sources+EpgSource(sourceName.ifBlank{"EPG "+(sources.size+1)},sourceUrl,true,sourceCountry);saveSources(prefs,sources);sourceName="";sourceUrl="";revision++}}}
+   Spacer(Modifier.height(10.dp));LazyColumn{itemsIndexed(sources){i,src->Row(Modifier.fillMaxWidth().padding(vertical=3.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){GuideButton((if(src.enabled)"✓ " else "○ ")+src.name,selected=src.enabled){sources=sources.toMutableList().also{it[i]=src.copy(enabled=!src.enabled)};saveSources(prefs,sources);revision++};Text(countries.firstOrNull{it.first==src.country}?.second?:"Senza paese",color=Color.White,modifier=Modifier.width(110.dp).padding(10.dp));Text(src.url,color=Color.LightGray,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.weight(1f).padding(10.dp));GuideButton("Elimina"){sources=sources.toMutableList().also{it.removeAt(i)};saveSources(prefs,sources);revision++}}}}
+  }
+ } else {
  Column(Modifier.fillMaxSize().background(Color(0xFF10131D)).padding(start=36.dp,top=24.dp,end=24.dp)){
-  Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){Text("Guida TV · TvVoo",color=Color.White,fontSize=28.sp,fontWeight=FontWeight.Bold);GuideButton("EPG"){epgMenu=true};GuideButton("Aggiorna EPG"){revision++}}
+  Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){Text("Guida TV · TvVoo",color=Color.White,fontSize=28.sp,fontWeight=FontWeight.Bold);GuideButton("EPG"){showEpg=true};GuideButton("Aggiorna EPG"){revision++}}
   Spacer(Modifier.height(10.dp));Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)){countries.forEach{(c,n)->GuideButton(n,selected=country==c){country=c}}}
   Spacer(Modifier.height(10.dp));Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){GuideButton("← Giorno prima"){dayOffset--};Text(day.format(DateTimeFormatter.ofPattern("EEEE d MMMM",Locale.ITALIAN)),color=Color.White,modifier=Modifier.padding(12.dp),fontSize=18.sp);GuideButton("Giorno dopo →"){dayOffset++};if(dayOffset!=0)GuideButton("Oggi"){dayOffset=0}}
   if(message.isNotEmpty())Text(message,color=Color.White,modifier=Modifier.padding(12.dp))
   LazyColumn(verticalArrangement=Arrangement.spacedBy(5.dp)){items(channels,key={it.id}){ch->Row(Modifier.fillMaxWidth().height(86.dp).background(Color(0xFF1B2030),RoundedCornerShape(8.dp)),horizontalArrangement=Arrangement.spacedBy(8.dp)){ChannelButton(ch,Modifier.width(210.dp).height(82.dp)){if(pending==null)pending=ch};Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(7.dp)){if(ch.programmes.isEmpty())Text("Palinsesto non disponibile",color=Color.LightGray,modifier=Modifier.padding(20.dp))else visibleProgrammes(ch.programmes,day).forEach{p->val now=Instant.now();val live=day==LocalDate.now(zone)&&!p.start.isAfter(now)&&p.end.isAfter(now);GuideButton((if(live)"● IN ONDA  " else "")+tf.format(p.start)+"–"+tf.format(p.end)+"\n"+p.title,Modifier.width(235.dp).height(82.dp),selected=live){if(pending==null)pending=ch}}}}}}
  }
-@Composable private fun EpgMenuScreen(sources:List<EpgSource>,sourceName:String,sourceUrl:String,sourceCountry:String,onNameChange:(String)->Unit,onUrlChange:(String)->Unit,onCountryChange:(String)->Unit,onBack:()->Unit,onAdd:()->Unit,onToggle:(Int)->Unit,onDelete:(Int)->Unit){
- Column(Modifier.fillMaxSize().background(Color(0xFF10131D)).padding(start=36.dp,top=24.dp,end=24.dp)){
-  Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){GuideButton("← Guida TV"){onBack()};Text("Gestione EPG",color=Color.White,fontSize=28.sp,fontWeight=FontWeight.Bold)}
-  Spacer(Modifier.height(18.dp));Text("EPG automatiche",color=Color.White,fontSize=20.sp,fontWeight=FontWeight.Bold)
-  Spacer(Modifier.height(8.dp));LazyColumn(Modifier.heightIn(max=180.dp),verticalArrangement=Arrangement.spacedBy(5.dp)){items(countries){(code,name)->val automatiche=defaultEpg[code].orEmpty();if(automatiche.isNotEmpty())Row(Modifier.fillMaxWidth().background(Color(0xFF1B2030),RoundedCornerShape(7.dp)).padding(10.dp)){Text(name,color=Color.White,modifier=Modifier.width(160.dp),fontWeight=FontWeight.Bold);Text(automatiche.joinToString{"✓ "+it.name},color=Color.LightGray)}}}
-  Spacer(Modifier.height(18.dp));Text("Aggiungi EPG manuale",color=Color.White,fontSize=20.sp,fontWeight=FontWeight.Bold)
-  Spacer(Modifier.height(8.dp));Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){countries.forEach{(c,n)->GuideButton(n,selected=sourceCountry==c){onCountryChange(c)}}}
-  Spacer(Modifier.height(8.dp));Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){TextField(sourceName,onNameChange,label={Text("Nome")},modifier=Modifier.width(180.dp));TextField(sourceUrl,onUrlChange,label={Text("URL XMLTV")},modifier=Modifier.width(500.dp));GuideButton("Aggiungi",selected=sourceUrl.startsWith("http")){onAdd()}}
-  Spacer(Modifier.height(16.dp));Text("EPG manuali",color=Color.White,fontSize=20.sp,fontWeight=FontWeight.Bold)
-  if(sources.isEmpty())Text("Nessuna EPG manuale",color=Color.LightGray,modifier=Modifier.padding(top=12.dp))
-  else LazyColumn(verticalArrangement=Arrangement.spacedBy(6.dp)){itemsIndexed(sources){i,src->Row(Modifier.fillMaxWidth().background(Color(0xFF1B2030),RoundedCornerShape(7.dp)).padding(7.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){GuideButton((if(src.enabled)"✓ " else "○ ")+src.name,selected=src.enabled){onToggle(i)};Text(countries.firstOrNull{it.first==src.country}?.second?:"Senza paese",color=Color.White,modifier=Modifier.width(120.dp).padding(10.dp));Text(src.url,color=Color.LightGray,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.weight(1f).padding(10.dp));GuideButton("Elimina"){onDelete(i)}}}}
+  val sc=streamChannel
+  if(sc!=null){
+   Column(Modifier.fillMaxSize().background(Color(0xF510131D)).padding(start=70.dp,top=70.dp,end=70.dp)){
+    Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){GuideButton("← Indietro"){streamChannel=null;streamChoices=emptyList()};Text("Sorgenti · "+sc.name,color=Color.White,fontSize=26.sp,fontWeight=FontWeight.Bold)}
+    Spacer(Modifier.height(18.dp))
+    if(loadingStreams)Text("Caricamento sorgenti…",color=Color.White) else if(streamChoices.isEmpty())Text("Nessuna sorgente disponibile",color=Color.White) else LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp)){items(streamChoices){choice->GuideButton(choice.name,Modifier.fillMaxWidth()){onOpenStream(choice.url,sc.name,sc.id);streamChannel=null;streamChoices=emptyList()}}}
+   }
+  }
  }
 }
 @Composable private fun ChannelButton(ch:Channel,modifier:Modifier,onClick:()->Unit){var f by remember{mutableStateOf(false)};Row(modifier.onFocusChanged{f=it.isFocused}.border(if(f)2.dp else 0.dp,Color.White,RoundedCornerShape(7.dp)).background(if(f)Color(0xFF3867AC) else Color(0xFF30394D),RoundedCornerShape(7.dp)).clickable(onClick=onClick).padding(7.dp)){if(ch.logo.isNotBlank())NetworkImage(ch.logo,Modifier.size(64.dp));Text(ch.name,color=Color.White,fontSize=15.sp,maxLines=2,overflow=TextOverflow.Ellipsis,modifier=Modifier.padding(8.dp))}}
@@ -111,7 +98,7 @@ private fun parseTime(v:String?):Instant?{if(v.isNullOrBlank())return null;retur
 private fun norm(s:String):String{var x=Normalizer.normalize(s,Normalizer.Form.NFD).replace(Regex("\\p{M}+"),"").uppercase(Locale.ROOT);x=x.replace(Regex("\\((BACKUP|HD|FHD|UHD|4K)\\)")," ").replace(Regex("\\b(BACKUP|FHD|UHD|4K|HD)\\b")," ");return x.replace(Regex("[^A-Z0-9]+")," ").trim()}
 private fun loadSources(raw:String):List<EpgSource>{return try{val a=JSONArray(raw);(0 until a.length()).map{val o=a.getJSONObject(it);EpgSource(o.optString("name"),o.optString("url"),o.optBoolean("enabled",true),o.optString("country"))}}catch(_:Exception){emptyList()}}
 private fun saveSources(p:android.content.SharedPreferences,s:List<EpgSource>){val a=JSONArray();s.forEach{a.put(JSONObject().put("name",it.name).put("url",it.url).put("enabled",it.enabled).put("country",it.country))};p.edit().putString("sources",a.toString()).apply()}
-private fun resolveStream(id:String):String{val e=URLEncoder.encode(id,"UTF-8").replace("+","%20");val a=fetchJson(ADDON+"/stream/tv/"+e+".json").optJSONArray("streams")?:error("nessuno stream");for(i in 0 until a.length()){val u=a.optJSONObject(i)?.optString("url").orEmpty();if(u.startsWith("http"))return u};error("nessuno stream riproducibile")}
+private fun resolveStreams(id:String):List<StreamChoice>{val e=URLEncoder.encode(id,"UTF-8").replace("+","%20");val a=fetchJson(ADDON+"/stream/tv/"+e+".json").optJSONArray("streams")?:return emptyList();val out=ArrayList<StreamChoice>();for(i in 0 until a.length()){val o=a.optJSONObject(i)?:continue;val u=o.optString("url");if(u.startsWith("http")){val n=o.optString("name").ifBlank{o.optString("title").ifBlank{"Sorgente "+(i+1)}};out+=StreamChoice(n,u)}};return out.distinctBy{it.url}}
 private fun fetchJson(address:String):JSONObject{val c=URL(address).openConnection() as HttpURLConnection;c.connectTimeout=15000;c.readTimeout=25000;try{if(c.responseCode !in 200..299)error("HTTP "+c.responseCode);return JSONObject(c.inputStream.bufferedReader().use{it.readText()})}finally{c.disconnect()}}
 
 private fun visibleProgrammes(programmes:List<Programme>,day:LocalDate):List<Programme>{if(day!=LocalDate.now(zone))return programmes;val now=Instant.now();val current=programmes.indexOfFirst{!it.start.isAfter(now)&&it.end.isAfter(now)};if(current>=0)return programmes.drop(current);val next=programmes.indexOfFirst{it.start.isAfter(now)};return if(next>=0)programmes.drop(next) else programmes.takeLast(1)}
