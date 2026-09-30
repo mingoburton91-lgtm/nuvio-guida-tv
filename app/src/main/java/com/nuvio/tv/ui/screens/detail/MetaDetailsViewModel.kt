@@ -45,6 +45,15 @@ import com.nuvio.tv.core.util.withAppLocale
 import com.nuvio.tv.core.util.isUnreleased
 import com.nuvio.tv.core.util.selectEpisodeReleaseValue
 import java.time.LocalDate
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.net.HttpURLConnection
+import java.net.URL
+import java.text.Normalizer
+import java.util.Locale
+import org.xmlpull.v1.XmlPullParser
+import org.xmlpull.v1.XmlPullParserFactory
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -898,7 +907,9 @@ class MetaDetailsViewModel @Inject constructor(
 
     private fun buildMetaLoadErrorMessage(originalMessage: String?, lookupId: String): String {
         val base = originalMessage ?: "Failed to load metadata"
-        return "$base\n\nID: $lookupId"
+        return "$base
+
+ID: $lookupId"
     }
 
     private fun syncEffectiveContentId(meta: Meta) {
@@ -985,6 +996,7 @@ class MetaDetailsViewModel @Inject constructor(
     }
 
     private suspend fun applyMetaWithEnrichment(meta: Meta) {
+        val displayMeta = if (isTvVooLive(meta)) applyTvVooNowNext(meta) else meta
         // Fire all independent async jobs immediately — they run in parallel.
         loadMoreLikeThisAsync(meta)
         val enriched = enrichMeta(meta)
@@ -3083,4 +3095,110 @@ class MetaDetailsViewModel @Inject constructor(
         trailerFetchJob?.cancel()
         nextToWatchJob?.cancel()
     }
+    private data class TvEpgProgramme(val title: String, val start: Instant, val end: Instant)
+    private data class TvEpgChannel(val names: List<String>, val programmes: MutableList<TvEpgProgramme>)
+
+    private fun isTvVooLive(meta: Meta): Boolean {
+        val origin = preferredAddonBaseUrl.orEmpty()
+        return origin.contains("tvvoo.hayd.uk", ignoreCase = true) &&
+            (itemType.equals("tv", true) || meta.apiType.equals("tv", true))
+    }
+
+    private suspend fun applyTvVooNowNext(meta: Meta): Meta = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        try {
+            val channelName = normalizeTvEpgName(meta.name)
+            val now = Instant.now()
+            val programmes = TVVOO_IT_EPG_URLS.asSequence()
+                .mapNotNull { url -> runCatching { readTvEpg(url, channelName) }.getOrNull() }
+                .firstOrNull { list -> list.any { !it.start.isAfter(now) && it.end.isAfter(now) } }
+                ?: return@withContext meta
+            val currentIndex = programmes.indexOfFirst { !it.start.isAfter(now) && it.end.isAfter(now) }
+            if (currentIndex < 0) return@withContext meta
+            val current = programmes[currentIndex]
+            val next = programmes.getOrNull(currentIndex + 1)
+            val fmt = DateTimeFormatter.ofPattern("HH:mm", Locale.ITALIAN).withZone(ZoneId.of("Europe/Rome"))
+            val description = buildString {
+                append("● IN ONDA  ").append(fmt.format(current.start)).append("–").append(fmt.format(current.end)).append(" · ").append(current.title)
+                if (next != null) append("
+A seguire  ").append(fmt.format(next.start)).append("–").append(fmt.format(next.end)).append(" · ").append(next.title)
+            }
+            meta.copy(description = description)
+        } catch (_: Exception) {
+            meta
+        }
+    }
+
+    private fun readTvEpg(address: String, wantedName: String): List<TvEpgProgramme> {
+        val connection = URL(address).openConnection() as HttpURLConnection
+        connection.connectTimeout = 10000
+        connection.readTimeout = 20000
+        try {
+            val parser = XmlPullParserFactory.newInstance().newPullParser()
+            parser.setInput(connection.inputStream, "UTF-8")
+            val channels = HashMap<String, TvEpgChannel>()
+            var event = parser.eventType
+            while (event != XmlPullParser.END_DOCUMENT) {
+                if (event == XmlPullParser.START_TAG && parser.name == "channel") {
+                    val id = parser.getAttributeValue(null, "id").orEmpty()
+                    val names = ArrayList<String>()
+                    var inner = parser.next()
+                    while (!(inner == XmlPullParser.END_TAG && parser.name == "channel")) {
+                        if (inner == XmlPullParser.START_TAG && parser.name == "display-name") names.add(parser.nextText())
+                        inner = parser.next()
+                    }
+                    if (names.any { normalizeTvEpgName(it) == wantedName } || normalizeTvEpgName(id) == wantedName) {
+                        channels[id] = TvEpgChannel(names, ArrayList())
+                    }
+                } else if (event == XmlPullParser.START_TAG && parser.name == "programme") {
+                    val id = parser.getAttributeValue(null, "channel").orEmpty()
+                    val target = channels[id]
+                    val start = parseTvEpgTime(parser.getAttributeValue(null, "start"))
+                    val end = parseTvEpgTime(parser.getAttributeValue(null, "stop"))
+                    var title = "Programma"
+                    var inner = parser.next()
+                    while (!(inner == XmlPullParser.END_TAG && parser.name == "programme")) {
+                        if (inner == XmlPullParser.START_TAG && parser.name == "title") title = parser.nextText()
+                        inner = parser.next()
+                    }
+                    if (target != null && start != null && end != null) target.programmes.add(TvEpgProgramme(title, start, end))
+                }
+                event = parser.next()
+            }
+            return channels.values.flatMap { it.programmes }.sortedBy { it.start }
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun parseTvEpgTime(value: String?): Instant? {
+        if (value.isNullOrBlank()) return null
+        return try {
+            val match = Regex("^(\\d{8})(\\d{4})(\\d{2})?\\s*(Z|[+-]\\d{4})?.*").find(value.trim()) ?: return null
+            val raw = match.groupValues[1] + match.groupValues[2] + match.groupValues[3].ifBlank { "00" }
+            val local = java.time.LocalDateTime.parse(raw, DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
+            val tz = match.groupValues.getOrNull(4).orEmpty()
+            when {
+                tz == "Z" -> local.toInstant(java.time.ZoneOffset.UTC)
+                Regex("[+-]\\d{4}").matches(tz) -> local.toInstant(java.time.ZoneOffset.of(tz.substring(0, 3) + ":" + tz.substring(3)))
+                else -> local.atZone(ZoneId.of("Europe/Rome")).toInstant()
+            }
+        } catch (_: Exception) { null }
+    }
+
+    private fun normalizeTvEpgName(value: String): String {
+        var normalized = Normalizer.normalize(value, Normalizer.Form.NFD)
+            .replace(Regex("\\p{M}+"), "")
+            .uppercase(Locale.ROOT)
+        normalized = normalized.replace(Regex("\\((BACKUP|HD|FHD|UHD|4K)\\)"), " ")
+            .replace(Regex("\\b(BACKUP|FHD|UHD|4K|HD)\\b"), " ")
+        return normalized.replace(Regex("[^A-Z0-9]+"), " ").trim()
+    }
+
+    companion object {
+        private val TVVOO_IT_EPG_URLS = listOf(
+            "https://iptv-org.github.io/epg/guides/it/guidatv.sky.it.epg.xml",
+            "https://iptv-org.github.io/epg/guides/it/mediaset.it.epg.xml"
+        )
+    }
+
 }
