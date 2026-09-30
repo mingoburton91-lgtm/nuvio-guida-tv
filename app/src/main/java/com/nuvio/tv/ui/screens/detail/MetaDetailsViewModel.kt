@@ -3098,13 +3098,15 @@ class MetaDetailsViewModel @Inject constructor(
 
     private fun isTvVooLive(meta: Meta): Boolean {
         val origin = preferredAddonBaseUrl.orEmpty()
-        val isTvType = itemType.equals("tv", true) || meta.apiType.equals("tv", true)
         val tvVooOrigin = origin.contains("tvvoo.hayd.uk", ignoreCase = true)
-        val tvVooId = itemId.startsWith("vavoo", true) ||
-            itemId.contains("vavoo", true) ||
-            meta.id.startsWith("vavoo", true) ||
-            meta.id.contains("vavoo", true)
-        return isTvType && (tvVooOrigin || tvVooId || origin.isBlank())
+        val tvVooIdentity = listOf(itemId, meta.id).any { id ->
+            id.startsWith("vavoo", true) ||
+                id.contains("vavoo", true) ||
+                id.contains("tvvoo", true)
+        }
+        // Home hero intentionally passes an empty addonBaseUrl. TvVoo live entries can also
+        // arrive with a non-"tv" apiType, so do not reject them by content type here.
+        return tvVooOrigin || tvVooIdentity || origin.isBlank()
     }
 
     private suspend fun applyTvVooNowNext(meta: Meta): Meta = kotlinx.coroutines.withContext(Dispatchers.IO) {
