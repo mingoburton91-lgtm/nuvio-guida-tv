@@ -73,6 +73,17 @@ import com.nuvio.tv.ui.util.LocalRecompositionHighlighterEnabled
 import com.nuvio.tv.ui.util.localizedContentType
 import com.nuvio.tv.ui.util.localizedGenreLabel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
+import java.text.Normalizer
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+import org.xmlpull.v1.XmlPullParser
+import org.xmlpull.v1.XmlPullParserFactory
 
 private const val AUTO_ADVANCE_INTERVAL_MS = 10000L
 private val YEAR_REGEX = Regex("""\b\d{4}\b""")
@@ -229,6 +240,12 @@ private fun HeroCarouselSlide(
     mdbListRatingOrder: List<String> = com.nuvio.tv.domain.model.MDBListSettings.DEFAULT_RATING_ORDER
 ) {
     val highlighterEnabled = LocalRecompositionHighlighterEnabled.current
+    var epgDescription by remember(item.id) { mutableStateOf<String?>(null) }
+    val isTvVooItem = item.sourceAddonBaseUrl.orEmpty().contains("tvvoo.hayd.uk", ignoreCase = true) ||
+        item.id.contains("vavoo", ignoreCase = true) || item.id.contains("tvvoo", ignoreCase = true)
+    LaunchedEffect(item.id, item.name, isTvVooItem) {
+        epgDescription = if (isTvVooItem) resolveHeroEpg(item.name) else null
+    }
     val context = LocalContext.current
     val density = LocalDensity.current
     val logoRequestWidthPx = remember(density) {
@@ -387,7 +404,7 @@ private fun HeroCarouselSlide(
                 )
             }
 
-            item.description?.takeIf { it.isNotBlank() }?.let { description ->
+            (epgDescription ?: item.description)?.takeIf { it.isNotBlank() }?.let { description ->
                 Text(
                     text = description,
                     style = MaterialTheme.typography.bodyMedium.copy(
@@ -515,4 +532,120 @@ internal fun HeroCarouselBackdrop(
             alignment = Alignment.TopCenter
         )
     }
+}
+
+
+private data class HeroEpgProgramme(
+    val title: String,
+    val description: String?,
+    val start: Instant,
+    val end: Instant
+)
+
+private val HERO_EPG_URLS = listOf(
+    "https://iptv-org.github.io/epg/guides/it/guidatv.sky.it.epg.xml",
+    "https://iptv-org.github.io/epg/guides/it/mediaset.it.epg.xml"
+)
+
+private suspend fun resolveHeroEpg(channelName: String): String? = withContext(Dispatchers.IO) {
+    val wanted = normalizeHeroEpgName(channelName)
+    val now = Instant.now()
+    for (url in HERO_EPG_URLS) {
+        val programmes = runCatching { readHeroEpg(url, wanted) }.getOrDefault(emptyList())
+        val index = programmes.indexOfFirst { !it.start.isAfter(now) && it.end.isAfter(now) }
+        if (index >= 0) {
+            val current = programmes[index]
+            val next = programmes.getOrNull(index + 1)
+            val fmt = DateTimeFormatter.ofPattern("HH:mm", Locale.ITALIAN).withZone(ZoneId.of("Europe/Rome"))
+            return@withContext buildString {
+                append("● IN ONDA ").append(fmt.format(current.start)).append("–").append(fmt.format(current.end))
+                    .append(" · ").append(current.title)
+                current.description?.takeIf { it.isNotBlank() }?.let { append("\n").append(it) }
+                if (next != null) {
+                    append("\nA seguire ").append(fmt.format(next.start)).append("–").append(fmt.format(next.end))
+                        .append(" · ").append(next.title)
+                    next.description?.takeIf { it.isNotBlank() }?.let { append("\n").append(it) }
+                }
+            }
+        }
+    }
+    null
+}
+
+private fun readHeroEpg(address: String, wantedName: String): List<HeroEpgProgramme> {
+    fun connection() = (URL(address).openConnection() as HttpURLConnection).apply {
+        connectTimeout = 10000
+        readTimeout = 20000
+    }
+    val ids = HashSet<String>()
+    var c = connection()
+    try {
+        val p = XmlPullParserFactory.newInstance().newPullParser()
+        p.setInput(c.inputStream, "UTF-8")
+        var event = p.eventType
+        while (event != XmlPullParser.END_DOCUMENT) {
+            if (event == XmlPullParser.START_TAG && p.name == "channel") {
+                val id = p.getAttributeValue(null, "id").orEmpty()
+                val names = ArrayList<String>()
+                var inner = p.next()
+                while (!(inner == XmlPullParser.END_TAG && p.name == "channel")) {
+                    if (inner == XmlPullParser.START_TAG && p.name == "display-name") names += p.nextText()
+                    inner = p.next()
+                }
+                if (names.any { normalizeHeroEpgName(it) == wantedName } ||
+                    normalizeHeroEpgName(id.removeSuffix(".it")) == wantedName ||
+                    normalizeHeroEpgName(id) == wantedName) ids += id
+            }
+            event = p.next()
+        }
+    } finally { c.disconnect() }
+    if (ids.isEmpty()) return emptyList()
+
+    val out = ArrayList<HeroEpgProgramme>()
+    c = connection()
+    try {
+        val p = XmlPullParserFactory.newInstance().newPullParser()
+        p.setInput(c.inputStream, "UTF-8")
+        var event = p.eventType
+        while (event != XmlPullParser.END_DOCUMENT) {
+            if (event == XmlPullParser.START_TAG && p.name == "programme") {
+                val channel = p.getAttributeValue(null, "channel").orEmpty()
+                val start = parseHeroEpgTime(p.getAttributeValue(null, "start"))
+                val end = parseHeroEpgTime(p.getAttributeValue(null, "stop"))
+                var title = "Programma"
+                var desc: String? = null
+                var inner = p.next()
+                while (!(inner == XmlPullParser.END_TAG && p.name == "programme")) {
+                    if (inner == XmlPullParser.START_TAG && p.name == "title") title = p.nextText()
+                    else if (inner == XmlPullParser.START_TAG && p.name == "desc") desc = p.nextText()
+                    inner = p.next()
+                }
+                if (channel in ids && start != null && end != null) out += HeroEpgProgramme(title, desc, start, end)
+            }
+            event = p.next()
+        }
+    } finally { c.disconnect() }
+    return out.sortedBy { it.start }
+}
+
+private fun parseHeroEpgTime(value: String?): Instant? {
+    if (value.isNullOrBlank()) return null
+    return runCatching {
+        val m = Regex("^(\\d{8})(\\d{4})(\\d{2})?\\s*(Z|[+-]\\d{4})?.*").find(value.trim()) ?: return null
+        val raw = m.groupValues[1] + m.groupValues[2] + m.groupValues[3].ifBlank { "00" }
+        val local = java.time.LocalDateTime.parse(raw, DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
+        val tz = m.groupValues.getOrNull(4).orEmpty()
+        when {
+            tz == "Z" -> local.toInstant(java.time.ZoneOffset.UTC)
+            Regex("[+-]\\d{4}").matches(tz) -> local.toInstant(java.time.ZoneOffset.of(tz.substring(0,3)+":"+tz.substring(3)))
+            else -> local.atZone(ZoneId.of("Europe/Rome")).toInstant()
+        }
+    }.getOrNull()
+}
+
+private fun normalizeHeroEpgName(value: String): String {
+    var n = Normalizer.normalize(value, Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "").uppercase(Locale.ROOT)
+    n = n.replace(Regex("\\((BACKUP|HD|FHD|UHD|4K)\\)"), " ")
+        .replace(Regex("\\b(BACKUP|FHD|UHD|4K|HD)\\b"), " ")
+    return n.replace(Regex("[^A-Z0-9]+"), " ").trim()
 }
