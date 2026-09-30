@@ -507,6 +507,15 @@ private suspend fun HomeViewModel.fetchExternalMetaOutcome(item: MetaPreview): E
     }
 
 internal fun HomeViewModel.onItemFocusPipeline(item: MetaPreview) {
+    if (item.sourceAddonBaseUrl?.contains("tvvoo.hayd.uk", ignoreCase = true) == true) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val epgPreview = enrichTvVooPreviewFromEpg(item)
+            if (epgPreview != null) {
+                addEnrichedPreview(item.id, epgPreview)
+                _lastEnrichedPreview.value = epgPreview
+            }
+        }
+    }
     if (startupGracePeriodActive) {
         deferredEnrichItem = item
         return
