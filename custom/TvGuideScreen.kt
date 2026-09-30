@@ -31,7 +31,8 @@ private val tf=DateTimeFormatter.ofPattern("HH:mm",Locale.ITALIAN).withZone(zone
 private data class Programme(val title:String,val start:Instant,val end:Instant)
 private data class Channel(val id:String,val name:String,val logo:String,val programmes:List<Programme>)
 private data class EpgSource(val name:String,val url:String,val enabled:Boolean=true,val country:String="")
-private data class EpgData(val names:Map<String,List<String>>,val programmes:Map<String,List<Programme>>)\nprivate data class StreamChoice(val name:String,val url:String)
+private data class EpgData(val names:Map<String,List<String>>,val programmes:Map<String,List<Programme>>)
+private data class StreamChoice(val name:String,val url:String)
 private val defaultEpg=mapOf(
 "it" to listOf(EpgSource("Italia · Sky","https://iptv-org.github.io/epg/guides/it/guidatv.sky.it.epg.xml",true,"it"),EpgSource("Italia · Mediaset","https://iptv-org.github.io/epg/guides/it/mediaset.it.epg.xml",true,"it")),
 "uk" to listOf(EpgSource("UK","https://iptv-org.github.io/epg/guides/uk/ontvtonight.com.epg.xml",true,"uk")),
@@ -54,7 +55,8 @@ private val defaultEpg=mapOf(
  val context=LocalContext.current;val prefs=remember{context.getSharedPreferences("tvguide_epg",0)}
  var country by rememberSaveable{mutableStateOf("it")};var dayOffset by rememberSaveable{mutableStateOf(0)}
  var channels by remember{mutableStateOf<List<Channel>>(emptyList())};var message by remember{mutableStateOf("Caricamento guida TV…")}
- var pending by remember{mutableStateOf<Channel?>(null)};var showEpg by rememberSaveable{mutableStateOf(false)}\n var streamChannel by remember{mutableStateOf<Channel?>(null)};var streamChoices by remember{mutableStateOf<List<StreamChoice>>(emptyList())};var loadingStreams by remember{mutableStateOf(false)}
+ var pending by remember{mutableStateOf<Channel?>(null)};var showEpg by rememberSaveable{mutableStateOf(false)}
+ var streamChannel by remember{mutableStateOf<Channel?>(null)};var streamChoices by remember{mutableStateOf<List<StreamChoice>>(emptyList())};var loadingStreams by remember{mutableStateOf(false)}
  var sourceName by rememberSaveable{mutableStateOf("")};var sourceUrl by rememberSaveable{mutableStateOf("")};var revision by remember{mutableStateOf(0)}
  var sources by remember{mutableStateOf(loadSources(prefs.getString("sources","[]").orEmpty()))}
  val day=remember(dayOffset){LocalDate.now(zone).plusDays(dayOffset.toLong())}
@@ -71,7 +73,8 @@ private val defaultEpg=mapOf(
   Spacer(Modifier.height(10.dp));Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)){countries.forEach{(c,n)->GuideButton(n,selected=country==c){country=c}}}
   Spacer(Modifier.height(10.dp));Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){GuideButton("← Giorno prima"){dayOffset--};Text(day.format(DateTimeFormatter.ofPattern("EEEE d MMMM",Locale.ITALIAN)),color=Color.White,modifier=Modifier.padding(12.dp),fontSize=18.sp);GuideButton("Giorno dopo →"){dayOffset++};if(dayOffset!=0)GuideButton("Oggi"){dayOffset=0}}
   if(message.isNotEmpty())Text(message,color=Color.White,modifier=Modifier.padding(12.dp))
-  LazyColumn(verticalArrangement=Arrangement.spacedBy(5.dp)){items(channels,key={it.id}){ch->Row(Modifier.fillMaxWidth().height(86.dp).background(Color(0xFF1B2030),RoundedCornerShape(8.dp)),horizontalArrangement=Arrangement.spacedBy(8.dp)){ChannelButton(ch,Modifier.width(210.dp).height(82.dp)){if(pending==null)pending=ch};Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(7.dp)){if(ch.programmes.isEmpty())Text("Palinsesto non disponibile",color=Color.LightGray,modifier=Modifier.padding(20.dp))else visibleProgrammes(ch.programmes,day).forEach{p->val now=Instant.now();val live=day==LocalDate.now(zone)&&!p.start.isAfter(now)&&p.end.isAfter(now);GuideButton((if(live)"● IN ONDA  " else "")+tf.format(p.start)+"–"+tf.format(p.end)+"\n"+p.title,Modifier.width(235.dp).height(82.dp),selected=live){if(pending==null)pending=ch}}}}}}
+  LazyColumn(verticalArrangement=Arrangement.spacedBy(5.dp)){items(channels,key={it.id}){ch->Row(Modifier.fillMaxWidth().height(86.dp).background(Color(0xFF1B2030),RoundedCornerShape(8.dp)),horizontalArrangement=Arrangement.spacedBy(8.dp)){ChannelButton(ch,Modifier.width(210.dp).height(82.dp)){if(pending==null)pending=ch};Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(7.dp)){if(ch.programmes.isEmpty())Text("Palinsesto non disponibile",color=Color.LightGray,modifier=Modifier.padding(20.dp))else visibleProgrammes(ch.programmes,day).forEach{p->val now=Instant.now();val live=day==LocalDate.now(zone)&&!p.start.isAfter(now)&&p.end.isAfter(now);GuideButton((if(live)"● IN ONDA  " else "")+tf.format(p.start)+"–"+tf.format(p.end)+"
+"+p.title,Modifier.width(235.dp).height(82.dp),selected=live){if(pending==null)pending=ch}}}}}}
  }
  }
  val selectedChannel=streamChannel
